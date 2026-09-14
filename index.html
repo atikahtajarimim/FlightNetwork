@@ -1,0 +1,2392 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Understanding Flight Networks — ECC3841</title>
+		<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+		<style>
+			@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Bowlby+One+SC&display=swap");
+
+			:root {
+				--sky: #6fc3e4;
+				--mustard: #f2c75b;
+				--mustard-deep: #e0a93a;
+				--coral: #ef6c45;
+				--coral-deep: #d8532e;
+				--cream: #fff8ec;
+				--ink: #20201c;
+				--land: #fbe7b8;
+				--land-stroke: #e7b65a;
+				--ocean: #bee7f5;
+			}
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				margin: 0;
+				padding: 0;
+				height: 100%;
+				background: var(--sky);
+				color: var(--ink);
+				font-family: "Baloo 2", ui-rounded, sans-serif;
+				overflow: hidden;
+			}
+
+			.frame {
+				margin: 14px;
+				height: calc(100vh - 28px);
+				border-radius: 26px;
+				background: var(--mustard);
+				padding: 10px;
+				box-shadow: 0 10px 0 rgba(0, 0, 0, 0.12);
+			}
+			.frame-inner {
+				height: 100%;
+				border-radius: 19px;
+				background: var(--coral);
+				padding: 6px;
+			}
+			.frame-content {
+				height: 100%;
+				border-radius: 14px;
+				background: var(--cream);
+				border: 4px solid var(--ink);
+				overflow: hidden;
+				display: flex;
+				flex-direction: column;
+			}
+
+			header {
+				position: relative;
+				padding: 16px 26px 10px;
+				border-bottom: 4px solid var(--ink);
+				flex-shrink: 0;
+			}
+			header .title-row {
+				display: flex;
+				align-items: flex-end;
+				justify-content: space-between;
+				gap: 16px;
+			}
+			header h1 {
+				font-family: "Bowlby One SC", cursive;
+				font-size: 2.2rem;
+				letter-spacing: 0;
+				line-height: 1;
+				margin: 0;
+				color: var(--coral);
+				-webkit-text-stroke: 2px var(--ink);
+				text-shadow: 3px 3px 0 var(--ink);
+			}
+			header .subtitle {
+				font-weight: 800;
+				font-size: 0.8rem;
+				letter-spacing: 0.04em;
+				color: var(--ink);
+				margin-top: 4px;
+			}
+			header p.desc {
+				margin: 8px 0 0;
+				font-size: 0.74rem;
+				color: #4a4a44;
+				max-width: 760px;
+				line-height: 1.5;
+				font-weight: 500;
+			}
+			header p.desc code {
+				color: var(--coral-deep);
+				font-weight: 700;
+			}
+
+			.doodle {
+				position: absolute;
+				top: 10px;
+				right: 26px;
+				width: 120px;
+				height: 60px;
+			}
+
+			.tag {
+				display: inline-block;
+				font-size: 0.62rem;
+				font-weight: 800;
+				letter-spacing: 0.04em;
+				text-transform: uppercase;
+				padding: 2px 9px;
+				border-radius: 20px;
+				border: 2px solid var(--ink);
+				margin-left: 4px;
+			}
+			.tag.real {
+				background: #b7e8c8;
+			}
+			.tag.illus {
+				background: var(--mustard);
+			}
+
+			main {
+				flex: 1;
+				position: relative;
+				min-height: 0;
+				background: var(--ocean);
+			}
+			svg#map {
+				width: 100%;
+				height: 100%;
+				display: block;
+				cursor: grab;
+			}
+			svg#map:active {
+				cursor: grabbing;
+			}
+			.land {
+				fill: var(--land);
+				stroke: var(--land-stroke);
+				stroke-width: 0.6;
+			}
+			.graticule {
+				fill: none;
+				stroke: #ffffff;
+				stroke-opacity: 0.5;
+				stroke-width: 0.5;
+			}
+
+			.route {
+				fill: none;
+				stroke-linecap: round;
+				transition:
+					opacity 0.35s ease,
+					stroke-width 0.35s ease,
+					stroke 0.35s ease;
+			}
+			.node-ring {
+				fill: none;
+				stroke-width: 1.4;
+				stroke: var(--coral-deep);
+				transition: opacity 0.35s ease;
+			}
+			.node-core {
+				stroke: var(--ink);
+				stroke-width: 0.8;
+				transition:
+					fill 0.35s ease,
+					opacity 0.35s ease;
+			}
+			.node-ghost {
+				fill: none;
+				stroke: #8a8a80;
+				stroke-width: 0.7;
+				stroke-dasharray: 1.6 1.6;
+				transition: opacity 0.35s ease;
+			}
+			.node-label {
+				font-family: "Baloo 2", sans-serif;
+				font-weight: 700;
+				font-size: 8.5px;
+				fill: #4a4a44;
+				pointer-events: none;
+				transition: fill 0.35s ease;
+			}
+			.node-label.active {
+				fill: var(--ink);
+			}
+
+			.zoombar {
+				position: absolute;
+				right: 14px;
+				bottom: 14px;
+				display: flex;
+				flex-direction: column;
+				gap: 6px;
+			}
+			.zoombtn {
+				width: 32px;
+				height: 32px;
+				border-radius: 50%;
+				background: var(--cream);
+				border: 3px solid var(--ink);
+				font-family: "Baloo 2", sans-serif;
+				font-weight: 800;
+				font-size: 1rem;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				cursor: pointer;
+				box-shadow: 0 3px 0 var(--ink);
+				user-select: none;
+			}
+			.zoombtn:active {
+				transform: translateY(2px);
+				box-shadow: 0 1px 0 var(--ink);
+			}
+			.zoombtn.reset {
+				font-size: 0.6rem;
+			}
+
+			footer.console {
+				flex-shrink: 0;
+				background: var(--cream);
+				border-top: 4px solid var(--ink);
+				padding: 12px 26px 14px;
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+			}
+			.slider-row {
+				display: flex;
+				align-items: center;
+				gap: 16px;
+			}
+			.slider-row .rowlabel {
+				min-width: 200px;
+				font-size: 0.72rem;
+				font-weight: 700;
+				color: var(--ink);
+			}
+			input[type="range"] {
+				-webkit-appearance: none;
+				appearance: none;
+				flex: 1;
+				height: 8px;
+				border-radius: 6px;
+				outline: none;
+				background: linear-gradient(
+					90deg,
+					var(--mustard),
+					var(--coral)
+				);
+				border: 2px solid var(--ink);
+			}
+			.field-control {
+				flex: 0 0 110px;
+				height: 30px;
+				padding: 2px 8px;
+				border: 2px solid var(--ink);
+				border-radius: 6px;
+				background: var(--cream);
+				color: var(--ink);
+				font:
+					800 0.85rem "Baloo 2",
+					sans-serif;
+			}
+			input[type="range"]::-webkit-slider-thumb {
+				-webkit-appearance: none;
+				width: 20px;
+				height: 20px;
+				border-radius: 50%;
+				background: var(--cream);
+				border: 3px solid var(--ink);
+				cursor: pointer;
+				margin-top: -8px;
+			}
+			input[type="range"]::-moz-range-thumb {
+				width: 20px;
+				height: 20px;
+				border-radius: 50%;
+				background: var(--cream);
+				border: 3px solid var(--ink);
+				cursor: pointer;
+			}
+			.readout {
+				min-width: 150px;
+				text-align: right;
+				font-size: 0.9rem;
+				font-weight: 800;
+				color: var(--coral-deep);
+			}
+			.statsbar {
+				display: flex;
+				gap: 26px;
+				padding-top: 6px;
+				border-top: 2px dashed var(--mustard-deep);
+			}
+			.stat {
+				display: flex;
+				flex-direction: column;
+				gap: 1px;
+			}
+			.stat .label {
+				font-size: 0.6rem;
+				font-weight: 700;
+				letter-spacing: 0.05em;
+				text-transform: uppercase;
+				color: #8a8a80;
+			}
+			.stat .value {
+				font-size: 0.95rem;
+				font-weight: 800;
+				color: var(--coral-deep);
+			}
+			#loading {
+				position: absolute;
+				inset: 0;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				color: #4a4a44;
+				font-weight: 700;
+				font-size: 0.85rem;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="frame">
+			<div class="frame-inner">
+				<div class="frame-content">
+					<header>
+						<svg class="doodle" viewBox="0 0 120 60">
+							<path
+								d="M4 50 Q30 10 55 35 Q70 50 60 20"
+								fill="none"
+								stroke="var(--ink)"
+								stroke-width="2"
+								stroke-dasharray="4 4"
+							/>
+							<g transform="translate(60,20) rotate(-35)">
+								<path
+									d="M0 0 L14 3 L0 6 L3 3 Z"
+									fill="var(--ink)"
+								/>
+							</g>
+						</svg>
+						<div class="title-row">
+							<div>
+								<h1>UNDERSTANDING<br />FLIGHT NETWORKS</h1>
+								<div class="subtitle">ECC3841 · GROUP B5</div>
+							</div>
+						</div>
+						<p class="desc">
+							U.S. airports on a zoomable map, pulled from BTS
+							passenger data and matched to OpenFlights
+							coordinates. Drag to pan, scroll or use the buttons
+							to zoom. Slider 1 filters routes by real annual
+							passengers from BTS
+							<span class="tag real">real, BTS</span>. Slider 2
+							selects one of the available BTS years
+							<span class="tag real"
+								>5-year steps + 2001-04 + 2026</span
+							>. BTS coverage is U.S. domestic, so routes without
+							a matching BTS observation are hidden.
+						</p>
+					</header>
+
+					<main>
+						<svg
+							id="map"
+							viewBox="0 0 960 500"
+							preserveAspectRatio="xMidYMid meet"
+						></svg>
+						<div id="loading">loading world map…</div>
+						<div class="zoombar">
+							<div class="zoombtn" id="zoomIn">+</div>
+							<div class="zoombtn" id="zoomOut">−</div>
+							<div class="zoombtn reset" id="zoomReset">RST</div>
+						</div>
+					</main>
+
+					<footer class="console">
+						<div class="slider-row">
+							<div class="rowlabel">
+								Min. passengers on route
+								<span class="tag real">real, BTS</span>
+							</div>
+							<input
+								type="range"
+								id="threshold"
+								min="0"
+								max="0"
+								step="1000"
+								value="0"
+							/>
+							<div class="readout" id="statThreshold">0</div>
+						</div>
+						<div class="slider-row">
+							<div class="rowlabel">
+								BTS year
+								<span class="tag real"
+									>5-year steps + 2001-04 + 2026</span
+								>
+							</div>
+							<input
+								type="range"
+								id="yearSlider"
+								min="0"
+								max="12"
+								step="1"
+								value="12"
+							/>
+							<div class="readout" id="statYear">2026</div>
+						</div>
+						<div class="slider-row">
+							<div class="rowlabel">
+								Airports to show
+								<span class="tag real">top by BTS degree</span>
+							</div>
+							<input
+								class="field-control"
+								type="number"
+								id="airportLimit"
+								min="1"
+								max="2000"
+								step="10"
+								value="100"
+								aria-label="Number of airports to show"
+							/>
+						</div>
+						<div class="statsbar">
+							<div class="stat">
+								<span class="label">Routes shown</span
+								><span class="value" id="statRoutes">–</span>
+							</div>
+							<div class="stat">
+								<span class="label">Airports shown</span
+								><span class="value" id="statOpen">–</span>
+							</div>
+							<div class="stat">
+								<span class="label">Airports connected</span
+								><span class="value" id="statConnected">–</span>
+							</div>
+						</div>
+					</footer>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			/* ---------------------------------------------------------------------
+   DATA — pulled live from OpenFlights (github.com/jpatokal/openflights),
+   7,698 airports / 67,663 routes as of their ~2014 snapshot. These are
+   the real top 60 airports by degree centrality (distinct destinations
+   reached), and real edges = number of distinct airline-route rows
+   between them (a genuine "how many carriers fly this pair" measure).
+   Opening years are real where I already had them verified from public
+   record; the rest are null (shown regardless of the year slider) —
+   I couldn't reach Wikidata's live query service from this environment
+   to fill the gaps, run the SPARQL query Claude gave you to complete it.
+	Passenger totals come from the local BTS aggregate CSV. BTS coverage is
+	U.S. domestic, so unmatched international routes are intentionally hidden.
+--------------------------------------------------------------------- */
+			let airports = [
+				{
+					code: "AMS",
+					city: "Amsterdam",
+					country: "Netherlands",
+					lat: 52.3086,
+					lon: 4.7639,
+					degree: 248,
+					open: 1916,
+				},
+				{
+					code: "FRA",
+					city: "Frankfurt",
+					country: "Germany",
+					lat: 50.0333,
+					lon: 8.5706,
+					degree: 244,
+					open: 1936,
+				},
+				{
+					code: "CDG",
+					city: "Paris",
+					country: "France",
+					lat: 49.0128,
+					lon: 2.55,
+					degree: 240,
+					open: 1974,
+				},
+				{
+					code: "IST",
+					city: "Istanbul",
+					country: "Turkey",
+					lat: 41.2753,
+					lon: 28.7519,
+					degree: 235,
+					open: 2018,
+				},
+				{
+					code: "ATL",
+					city: "Atlanta",
+					country: "United States",
+					lat: 33.6367,
+					lon: -84.4281,
+					degree: 217,
+					open: 1926,
+				},
+				{
+					code: "ORD",
+					city: "Chicago",
+					country: "United States",
+					lat: 41.9786,
+					lon: -87.9048,
+					degree: 206,
+					open: 1955,
+				},
+				{
+					code: "PEK",
+					city: "Beijing",
+					country: "China",
+					lat: 40.0801,
+					lon: 116.585,
+					degree: 205,
+					open: 1958,
+				},
+				{
+					code: "MUC",
+					city: "Munich",
+					country: "Germany",
+					lat: 48.3538,
+					lon: 11.7861,
+					degree: 192,
+					open: 1992,
+				},
+				{
+					code: "DME",
+					city: "Moscow",
+					country: "Russia",
+					lat: 55.4088,
+					lon: 37.9063,
+					degree: 189,
+					open: 1964,
+				},
+				{
+					code: "DFW",
+					city: "Dallas-Fort Worth",
+					country: "United States",
+					lat: 32.8968,
+					lon: -97.038,
+					degree: 188,
+					open: 1974,
+				},
+				{
+					code: "DXB",
+					city: "Dubai",
+					country: "United Arab Emirates",
+					lat: 25.2528,
+					lon: 55.3644,
+					degree: 187,
+					open: 1960,
+				},
+				{
+					code: "LHR",
+					city: "London",
+					country: "United Kingdom",
+					lat: 51.4706,
+					lon: -0.4619,
+					degree: 172,
+					open: 1946,
+				},
+				{
+					code: "DEN",
+					city: "Denver",
+					country: "United States",
+					lat: 39.8617,
+					lon: -104.673,
+					degree: 169,
+					open: 1995,
+				},
+				{
+					code: "IAH",
+					city: "Houston",
+					country: "United States",
+					lat: 29.9844,
+					lon: -95.3414,
+					degree: 169,
+					open: 1969,
+				},
+				{
+					code: "LGW",
+					city: "London",
+					country: "United Kingdom",
+					lat: 51.1481,
+					lon: -0.1903,
+					degree: 165,
+					open: 1958,
+				},
+				{
+					code: "BCN",
+					city: "Barcelona",
+					country: "Spain",
+					lat: 41.2971,
+					lon: 2.0785,
+					degree: 163,
+					open: 1918,
+				},
+				{
+					code: "JFK",
+					city: "New York",
+					country: "United States",
+					lat: 40.6398,
+					lon: -73.7789,
+					degree: 162,
+					open: 1948,
+				},
+				{
+					code: "FCO",
+					city: "Rome",
+					country: "Italy",
+					lat: 41.8003,
+					lon: 12.2389,
+					degree: 162,
+					open: 1961,
+				},
+				{
+					code: "MAD",
+					city: "Madrid",
+					country: "Spain",
+					lat: 40.4719,
+					lon: -3.5626,
+					degree: 159,
+					open: 1928,
+				},
+				{
+					code: "BRU",
+					city: "Brussels",
+					country: "Belgium",
+					lat: 50.9014,
+					lon: 4.4844,
+					degree: 153,
+					open: null,
+				},
+				{
+					code: "STN",
+					city: "London",
+					country: "United Kingdom",
+					lat: 51.885,
+					lon: 0.235,
+					degree: 153,
+					open: null,
+				},
+				{
+					code: "EWR",
+					city: "Newark",
+					country: "United States",
+					lat: 40.6925,
+					lon: -74.1687,
+					degree: 153,
+					open: 1928,
+				},
+				{
+					code: "PVG",
+					city: "Shanghai",
+					country: "China",
+					lat: 31.1434,
+					lon: 121.805,
+					degree: 151,
+					open: 1999,
+				},
+				{
+					code: "CAN",
+					city: "Guangzhou",
+					country: "China",
+					lat: 23.3924,
+					lon: 113.299,
+					degree: 148,
+					open: null,
+				},
+				{
+					code: "LAX",
+					city: "Los Angeles",
+					country: "United States",
+					lat: 33.9425,
+					lon: -118.408,
+					degree: 148,
+					open: 1930,
+				},
+				{
+					code: "MAN",
+					city: "Manchester",
+					country: "United Kingdom",
+					lat: 53.3537,
+					lon: -2.275,
+					degree: 148,
+					open: null,
+				},
+				{
+					code: "DUS",
+					city: "Duesseldorf",
+					country: "Germany",
+					lat: 51.2895,
+					lon: 6.7668,
+					degree: 147,
+					open: null,
+				},
+				{
+					code: "YYZ",
+					city: "Toronto",
+					country: "Canada",
+					lat: 43.6772,
+					lon: -79.6306,
+					degree: 147,
+					open: 1939,
+				},
+				{
+					code: "DUB",
+					city: "Dublin",
+					country: "Ireland",
+					lat: 53.4213,
+					lon: -6.2701,
+					degree: 144,
+					open: null,
+				},
+				{
+					code: "SVO",
+					city: "Moscow",
+					country: "Russia",
+					lat: 55.9726,
+					lon: 37.4146,
+					degree: 144,
+					open: null,
+				},
+				{
+					code: "CLT",
+					city: "Charlotte",
+					country: "United States",
+					lat: 35.214,
+					lon: -80.9431,
+					degree: 141,
+					open: 1936,
+				},
+				{
+					code: "VIE",
+					city: "Vienna",
+					country: "Austria",
+					lat: 48.1103,
+					lon: 16.5697,
+					degree: 139,
+					open: 1938,
+				},
+				{
+					code: "MIA",
+					city: "Miami",
+					country: "United States",
+					lat: 25.7932,
+					lon: -80.2906,
+					degree: 138,
+					open: 1928,
+				},
+				{
+					code: "ZRH",
+					city: "Zurich",
+					country: "Switzerland",
+					lat: 47.4647,
+					lon: 8.5492,
+					degree: 137,
+					open: 1948,
+				},
+				{
+					code: "DTW",
+					city: "Detroit",
+					country: "United States",
+					lat: 42.2124,
+					lon: -83.3534,
+					degree: 135,
+					open: 1958,
+				},
+				{
+					code: "HKG",
+					city: "Hong Kong",
+					country: "Hong Kong",
+					lat: 22.3089,
+					lon: 113.915,
+					degree: 133,
+					open: 1998,
+				},
+				{
+					code: "LAS",
+					city: "Las Vegas",
+					country: "United States",
+					lat: 36.0801,
+					lon: -115.152,
+					degree: 133,
+					open: 1948,
+				},
+				{
+					code: "ICN",
+					city: "Seoul",
+					country: "South Korea",
+					lat: 37.4691,
+					lon: 126.451,
+					degree: 132,
+					open: 2001,
+				},
+				{
+					code: "MSP",
+					city: "Minneapolis",
+					country: "United States",
+					lat: 44.882,
+					lon: -93.2218,
+					degree: 131,
+					open: 1920,
+				},
+				{
+					code: "PMI",
+					city: "Palma de Mallorca",
+					country: "Spain",
+					lat: 39.5517,
+					lon: 2.7388,
+					degree: 127,
+					open: null,
+				},
+				{
+					code: "IAD",
+					city: "Washington",
+					country: "United States",
+					lat: 38.9445,
+					lon: -77.4558,
+					degree: 127,
+					open: 1962,
+				},
+				{
+					code: "SIN",
+					city: "Singapore",
+					country: "Singapore",
+					lat: 1.3502,
+					lon: 103.994,
+					degree: 125,
+					open: 1981,
+				},
+				{
+					code: "ARN",
+					city: "Stockholm",
+					country: "Sweden",
+					lat: 59.6519,
+					lon: 17.9186,
+					degree: 124,
+					open: 1976,
+				},
+				{
+					code: "PHL",
+					city: "Philadelphia",
+					country: "United States",
+					lat: 39.8719,
+					lon: -75.2411,
+					degree: 123,
+					open: null,
+				},
+				{
+					code: "BKK",
+					city: "Bangkok",
+					country: "Thailand",
+					lat: 13.6811,
+					lon: 100.747,
+					degree: 122,
+					open: 2006,
+				},
+				{
+					code: "CPH",
+					city: "Copenhagen",
+					country: "Denmark",
+					lat: 55.6179,
+					lon: 12.656,
+					degree: 122,
+					open: 1925,
+				},
+				{
+					code: "ORY",
+					city: "Paris",
+					country: "France",
+					lat: 48.7233,
+					lon: 2.3794,
+					degree: 122,
+					open: null,
+				},
+				{
+					code: "DOH",
+					city: "Doha",
+					country: "Qatar",
+					lat: 25.2731,
+					lon: 51.6081,
+					degree: 118,
+					open: 2014,
+				},
+				{
+					code: "AGP",
+					city: "Malaga",
+					country: "Spain",
+					lat: 36.6749,
+					lon: -4.4991,
+					degree: 117,
+					open: null,
+				},
+				{
+					code: "LED",
+					city: "St. Petersburg",
+					country: "Russia",
+					lat: 59.8003,
+					lon: 30.2625,
+					degree: 113,
+					open: null,
+				},
+				{
+					code: "MXP",
+					city: "Milano",
+					country: "Italy",
+					lat: 45.6306,
+					lon: 8.7281,
+					degree: 113,
+					open: null,
+				},
+				{
+					code: "KUL",
+					city: "Kuala Lumpur",
+					country: "Malaysia",
+					lat: 2.7456,
+					lon: 101.71,
+					degree: 112,
+					open: 1998,
+				},
+				{
+					code: "JED",
+					city: "Jeddah",
+					country: "Saudi Arabia",
+					lat: 21.6796,
+					lon: 39.1565,
+					degree: 111,
+					open: null,
+				},
+				{
+					code: "TXL",
+					city: "Berlin",
+					country: "Germany",
+					lat: 52.5597,
+					lon: 13.2877,
+					degree: 110,
+					open: null,
+				},
+				{
+					code: "CTU",
+					city: "Chengdu",
+					country: "China",
+					lat: 30.5785,
+					lon: 103.947,
+					degree: 107,
+					open: null,
+				},
+				{
+					code: "SFO",
+					city: "San Francisco",
+					country: "United States",
+					lat: 37.619,
+					lon: -122.375,
+					degree: 105,
+					open: 1927,
+				},
+				{
+					code: "OSL",
+					city: "Oslo",
+					country: "Norway",
+					lat: 60.121,
+					lon: 11.0502,
+					degree: 104,
+					open: 1998,
+				},
+				{
+					code: "ATH",
+					city: "Athens",
+					country: "Greece",
+					lat: 37.9364,
+					lon: 23.9445,
+					degree: 104,
+					open: null,
+				},
+				{
+					code: "NRT",
+					city: "Tokyo",
+					country: "Japan",
+					lat: 35.7647,
+					lon: 140.386,
+					degree: 104,
+					open: 1978,
+				},
+				{
+					code: "LIS",
+					city: "Lisbon",
+					country: "Portugal",
+					lat: 38.7813,
+					lon: -9.1359,
+					degree: 103,
+					open: null,
+				},
+			];
+
+			let routes = [
+				{ o: "BKK", d: "SIN", carriers: 19 },
+				{ o: "HKG", d: "SIN", carriers: 16 },
+				{ o: "KUL", d: "SIN", carriers: 20 },
+				{ o: "CAN", d: "CTU", carriers: 12 },
+				{ o: "CTU", d: "HKG", carriers: 12 },
+				{ o: "CTU", d: "ICN", carriers: 6 },
+				{ o: "CTU", d: "PEK", carriers: 12 },
+				{ o: "CTU", d: "PVG", carriers: 14 },
+				{ o: "LAS", d: "LAX", carriers: 18 },
+				{ o: "AGP", d: "TXL", carriers: 4 },
+				{ o: "ARN", d: "DUS", carriers: 6 },
+				{ o: "BCN", d: "DUS", carriers: 8 },
+				{ o: "DUB", d: "DUS", carriers: 4 },
+				{ o: "DUS", d: "MAD", carriers: 6 },
+				{ o: "DUS", d: "MXP", carriers: 6 },
+				{ o: "DUS", d: "PMI", carriers: 10 },
+				{ o: "FCO", d: "TXL", carriers: 6 },
+				{ o: "LHR", d: "TXL", carriers: 8 },
+				{ o: "PMI", d: "TXL", carriers: 4 },
+				{ o: "TXL", d: "VIE", carriers: 10 },
+				{ o: "DME", d: "LED", carriers: 10 },
+				{ o: "BKK", d: "ICN", carriers: 20 },
+				{ o: "HKG", d: "ICN", carriers: 20 },
+				{ o: "ICN", d: "NRT", carriers: 20 },
+				{ o: "CDG", d: "IST", carriers: 6 },
+				{ o: "BKK", d: "PVG", carriers: 10 },
+				{ o: "HKG", d: "PVG", carriers: 14 },
+				{ o: "PVG", d: "SIN", carriers: 6 },
+				{ o: "ATL", d: "MSP", carriers: 15 },
+				{ o: "BRU", d: "EWR", carriers: 10 },
+				{ o: "BRU", d: "YYZ", carriers: 5 },
+				{ o: "ATH", d: "BCN", carriers: 8 },
+				{ o: "ATH", d: "BRU", carriers: 5 },
+				{ o: "ATH", d: "CDG", carriers: 7 },
+				{ o: "ATH", d: "DME", carriers: 4 },
+				{ o: "ATH", d: "DUS", carriers: 4 },
+				{ o: "ATH", d: "FCO", carriers: 9 },
+				{ o: "ATH", d: "FRA", carriers: 4 },
+				{ o: "ATH", d: "IST", carriers: 6 },
+				{ o: "ATH", d: "LED", carriers: 2 },
+				{ o: "ATH", d: "LHR", carriers: 9 },
+				{ o: "ATH", d: "MAD", carriers: 4 },
+				{ o: "ATH", d: "MAN", carriers: 6 },
+				{ o: "ATH", d: "MUC", carriers: 7 },
+				{ o: "ATH", d: "MXP", carriers: 6 },
+				{ o: "ATH", d: "OSL", carriers: 6 },
+				{ o: "ATH", d: "PHL", carriers: 6 },
+				{ o: "ATH", d: "TXL", carriers: 4 },
+				{ o: "ATH", d: "VIE", carriers: 4 },
+				{ o: "LIS", d: "ZRH", carriers: 10 },
+				{ o: "AGP", d: "LHR", carriers: 4 },
+				{ o: "AMS", d: "LHR", carriers: 10 },
+				{ o: "AMS", d: "PHL", carriers: 4 },
+				{ o: "ARN", d: "LHR", carriers: 12 },
+				{ o: "ATL", d: "CLT", carriers: 16 },
+				{ o: "ATL", d: "DFW", carriers: 21 },
+				{ o: "ATL", d: "LHR", carriers: 16 },
+				{ o: "ATL", d: "MIA", carriers: 24 },
+				{ o: "ATL", d: "ORD", carriers: 39 },
+				{ o: "ATL", d: "PHL", carriers: 18 },
+				{ o: "BCN", d: "JFK", carriers: 18 },
+				{ o: "BCN", d: "LHR", carriers: 6 },
+				{ o: "BCN", d: "MIA", carriers: 10 },
+				{ o: "BCN", d: "PHL", carriers: 4 },
+				{ o: "BKK", d: "KUL", carriers: 18 },
+				{ o: "BKK", d: "NRT", carriers: 16 },
+				{ o: "BRU", d: "LHR", carriers: 6 },
+				{ o: "BRU", d: "PHL", carriers: 4 },
+				{ o: "CDG", d: "CLT", carriers: 4 },
+				{ o: "CDG", d: "DFW", carriers: 11 },
+				{ o: "CDG", d: "JFK", carriers: 22 },
+				{ o: "CDG", d: "KUL", carriers: 6 },
+				{ o: "CDG", d: "LHR", carriers: 6 },
+				{ o: "CDG", d: "MIA", carriers: 17 },
+				{ o: "CDG", d: "ORD", carriers: 20 },
+				{ o: "CDG", d: "PHL", carriers: 8 },
+				{ o: "CLT", d: "DEN", carriers: 4 },
+				{ o: "CLT", d: "DFW", carriers: 4 },
+				{ o: "CLT", d: "DTW", carriers: 6 },
+				{ o: "CLT", d: "DUB", carriers: 4 },
+				{ o: "CLT", d: "EWR", carriers: 6 },
+				{ o: "CLT", d: "FCO", carriers: 4 },
+				{ o: "CLT", d: "FRA", carriers: 4 },
+				{ o: "CLT", d: "IAD", carriers: 6 },
+				{ o: "CLT", d: "IAH", carriers: 6 },
+				{ o: "CLT", d: "JFK", carriers: 8 },
+				{ o: "CLT", d: "LAS", carriers: 4 },
+				{ o: "CLT", d: "LAX", carriers: 4 },
+				{ o: "CLT", d: "LHR", carriers: 4 },
+				{ o: "CLT", d: "MIA", carriers: 4 },
+				{ o: "CLT", d: "MSP", carriers: 6 },
+				{ o: "CLT", d: "ORD", carriers: 6 },
+				{ o: "CLT", d: "PHL", carriers: 4 },
+				{ o: "CLT", d: "SFO", carriers: 4 },
+				{ o: "CLT", d: "YYZ", carriers: 6 },
+				{ o: "CPH", d: "LHR", carriers: 6 },
+				{ o: "DEN", d: "DFW", carriers: 10 },
+				{ o: "DEN", d: "LAX", carriers: 14 },
+				{ o: "DEN", d: "LHR", carriers: 8 },
+				{ o: "DEN", d: "MIA", carriers: 6 },
+				{ o: "DEN", d: "ORD", carriers: 8 },
+				{ o: "DEN", d: "PHL", carriers: 9 },
+				{ o: "DFW", d: "DTW", carriers: 8 },
+				{ o: "DFW", d: "EWR", carriers: 6 },
+				{ o: "DFW", d: "FRA", carriers: 18 },
+				{ o: "DFW", d: "IAD", carriers: 6 },
+				{ o: "DFW", d: "IAH", carriers: 6 },
+				{ o: "DFW", d: "ICN", carriers: 8 },
+				{ o: "DFW", d: "JFK", carriers: 6 },
+				{ o: "DFW", d: "LAS", carriers: 6 },
+				{ o: "DFW", d: "LAX", carriers: 12 },
+				{ o: "DFW", d: "LHR", carriers: 13 },
+				{ o: "DFW", d: "MAD", carriers: 10 },
+				{ o: "DFW", d: "MIA", carriers: 4 },
+				{ o: "DFW", d: "MSP", carriers: 10 },
+				{ o: "DFW", d: "NRT", carriers: 8 },
+				{ o: "DFW", d: "ORD", carriers: 8 },
+				{ o: "DFW", d: "PHL", carriers: 6 },
+				{ o: "DFW", d: "SFO", carriers: 10 },
+				{ o: "DFW", d: "YYZ", carriers: 10 },
+				{ o: "DOH", d: "IAD", carriers: 4 },
+				{ o: "DOH", d: "IAH", carriers: 6 },
+				{ o: "DOH", d: "JFK", carriers: 4 },
+				{ o: "DOH", d: "ORD", carriers: 4 },
+				{ o: "DOH", d: "PHL", carriers: 4 },
+				{ o: "DTW", d: "MIA", carriers: 6 },
+				{ o: "DTW", d: "ORD", carriers: 8 },
+				{ o: "DTW", d: "PHL", carriers: 6 },
+				{ o: "DUB", d: "JFK", carriers: 18 },
+				{ o: "DUB", d: "LHR", carriers: 6 },
+				{ o: "DUB", d: "ORD", carriers: 14 },
+				{ o: "DUB", d: "PHL", carriers: 4 },
+				{ o: "DUS", d: "JFK", carriers: 4 },
+				{ o: "DUS", d: "LAX", carriers: 4 },
+				{ o: "DUS", d: "LHR", carriers: 6 },
+				{ o: "DUS", d: "MIA", carriers: 4 },
+				{ o: "DUS", d: "ORD", carriers: 16 },
+				{ o: "DXB", d: "LHR", carriers: 11 },
+				{ o: "EWR", d: "HKG", carriers: 6 },
+				{ o: "EWR", d: "LHR", carriers: 16 },
+				{ o: "EWR", d: "MIA", carriers: 6 },
+				{ o: "EWR", d: "ORD", carriers: 6 },
+				{ o: "EWR", d: "ORY", carriers: 6 },
+				{ o: "EWR", d: "PHL", carriers: 4 },
+				{ o: "FCO", d: "JFK", carriers: 14 },
+				{ o: "FCO", d: "LHR", carriers: 6 },
+				{ o: "FCO", d: "ORD", carriers: 14 },
+				{ o: "FCO", d: "PHL", carriers: 4 },
+				{ o: "FRA", d: "KUL", carriers: 6 },
+				{ o: "FRA", d: "LHR", carriers: 8 },
+				{ o: "FRA", d: "PHL", carriers: 6 },
+				{ o: "HKG", d: "JFK", carriers: 4 },
+				{ o: "HKG", d: "LAX", carriers: 4 },
+				{ o: "HKG", d: "NRT", carriers: 10 },
+				{ o: "HKG", d: "ORD", carriers: 6 },
+				{ o: "HKG", d: "SFO", carriers: 12 },
+				{ o: "IAD", d: "LAX", carriers: 8 },
+				{ o: "IAD", d: "LHR", carriers: 16 },
+				{ o: "IAD", d: "MIA", carriers: 6 },
+				{ o: "IAH", d: "LAX", carriers: 10 },
+				{ o: "IAH", d: "LHR", carriers: 12 },
+				{ o: "IAH", d: "MIA", carriers: 6 },
+				{ o: "IAH", d: "ORD", carriers: 8 },
+				{ o: "IAH", d: "PHL", carriers: 6 },
+				{ o: "IST", d: "LHR", carriers: 6 },
+				{ o: "JFK", d: "LAS", carriers: 16 },
+				{ o: "JFK", d: "LAX", carriers: 16 },
+				{ o: "JFK", d: "LHR", carriers: 24 },
+				{ o: "JFK", d: "MAD", carriers: 18 },
+				{ o: "JFK", d: "MAN", carriers: 11 },
+				{ o: "JFK", d: "MIA", carriers: 6 },
+				{ o: "JFK", d: "MXP", carriers: 20 },
+				{ o: "JFK", d: "NRT", carriers: 10 },
+				{ o: "JFK", d: "ORD", carriers: 10 },
+				{ o: "JFK", d: "ORY", carriers: 6 },
+				{ o: "JFK", d: "SFO", carriers: 14 },
+				{ o: "JFK", d: "TXL", carriers: 4 },
+				{ o: "JFK", d: "YYZ", carriers: 13 },
+				{ o: "JFK", d: "ZRH", carriers: 8 },
+				{ o: "KUL", d: "LHR", carriers: 4 },
+				{ o: "KUL", d: "NRT", carriers: 6 },
+				{ o: "LAS", d: "LGW", carriers: 10 },
+				{ o: "LAS", d: "LHR", carriers: 8 },
+				{ o: "LAS", d: "MIA", carriers: 4 },
+				{ o: "LAS", d: "ORD", carriers: 8 },
+				{ o: "LAS", d: "PHL", carriers: 8 },
+				{ o: "LAS", d: "YYZ", carriers: 8 },
+				{ o: "LAX", d: "LHR", carriers: 22 },
+				{ o: "LAX", d: "MAD", carriers: 8 },
+				{ o: "LAX", d: "MIA", carriers: 8 },
+				{ o: "LAX", d: "NRT", carriers: 17 },
+				{ o: "LAX", d: "ORD", carriers: 13 },
+				{ o: "LAX", d: "PHL", carriers: 6 },
+				{ o: "LAX", d: "PVG", carriers: 13 },
+				{ o: "LAX", d: "SFO", carriers: 14 },
+				{ o: "LAX", d: "YYZ", carriers: 10 },
+				{ o: "LHR", d: "LIS", carriers: 13 },
+				{ o: "LHR", d: "MAN", carriers: 10 },
+				{ o: "LHR", d: "MIA", carriers: 15 },
+				{ o: "LHR", d: "MUC", carriers: 8 },
+				{ o: "LHR", d: "MXP", carriers: 4 },
+				{ o: "LHR", d: "ORD", carriers: 18 },
+				{ o: "LHR", d: "OSL", carriers: 8 },
+				{ o: "LHR", d: "PHL", carriers: 10 },
+				{ o: "LHR", d: "SFO", carriers: 20 },
+				{ o: "LHR", d: "VIE", carriers: 8 },
+				{ o: "LHR", d: "YYZ", carriers: 13 },
+				{ o: "LHR", d: "ZRH", carriers: 8 },
+				{ o: "LIS", d: "PHL", carriers: 6 },
+				{ o: "MAD", d: "MIA", carriers: 10 },
+				{ o: "MAD", d: "ORD", carriers: 8 },
+				{ o: "MAD", d: "PHL", carriers: 4 },
+				{ o: "MAN", d: "ORD", carriers: 10 },
+				{ o: "MAN", d: "PHL", carriers: 4 },
+				{ o: "MIA", d: "MSP", carriers: 6 },
+				{ o: "MIA", d: "MXP", carriers: 10 },
+				{ o: "MIA", d: "ORD", carriers: 6 },
+				{ o: "MIA", d: "PHL", carriers: 4 },
+				{ o: "MIA", d: "SFO", carriers: 6 },
+				{ o: "MIA", d: "TXL", carriers: 4 },
+				{ o: "MIA", d: "YYZ", carriers: 8 },
+				{ o: "MSP", d: "ORD", carriers: 10 },
+				{ o: "MSP", d: "PHL", carriers: 6 },
+				{ o: "MUC", d: "PHL", carriers: 4 },
+				{ o: "NRT", d: "ORD", carriers: 12 },
+				{ o: "NRT", d: "SIN", carriers: 16 },
+				{ o: "ORD", d: "PEK", carriers: 10 },
+				{ o: "ORD", d: "PHL", carriers: 6 },
+				{ o: "ORD", d: "PVG", carriers: 10 },
+				{ o: "ORD", d: "SFO", carriers: 10 },
+				{ o: "ORD", d: "TXL", carriers: 4 },
+				{ o: "ORD", d: "YYZ", carriers: 12 },
+				{ o: "PHL", d: "SFO", carriers: 8 },
+				{ o: "PHL", d: "YYZ", carriers: 8 },
+				{ o: "PHL", d: "ZRH", carriers: 4 },
+				{ o: "AGP", d: "DUS", carriers: 4 },
+				{ o: "AGP", d: "MUC", carriers: 10 },
+				{ o: "AGP", d: "PMI", carriers: 9 },
+				{ o: "AGP", d: "VIE", carriers: 4 },
+				{ o: "ARN", d: "TXL", carriers: 10 },
+				{ o: "ARN", d: "VIE", carriers: 8 },
+				{ o: "BCN", d: "TXL", carriers: 8 },
+				{ o: "BCN", d: "VIE", carriers: 12 },
+				{ o: "CDG", d: "VIE", carriers: 8 },
+				{ o: "CPH", d: "DUS", carriers: 8 },
+				{ o: "CPH", d: "PMI", carriers: 6 },
+				{ o: "CPH", d: "TXL", carriers: 11 },
+				{ o: "CPH", d: "VIE", carriers: 10 },
+				{ o: "DME", d: "DUS", carriers: 4 },
+				{ o: "DME", d: "FRA", carriers: 6 },
+				{ o: "DME", d: "MUC", carriers: 6 },
+				{ o: "DME", d: "TXL", carriers: 4 },
+				{ o: "DUS", d: "FCO", carriers: 6 },
+				{ o: "DUS", d: "MUC", carriers: 5 },
+				{ o: "DUS", d: "STN", carriers: 2 },
+				{ o: "DUS", d: "TXL", carriers: 6 },
+				{ o: "DUS", d: "VIE", carriers: 6 },
+				{ o: "DUS", d: "ZRH", carriers: 6 },
+				{ o: "FCO", d: "VIE", carriers: 10 },
+				{ o: "FRA", d: "MAD", carriers: 16 },
+				{ o: "FRA", d: "PMI", carriers: 8 },
+				{ o: "FRA", d: "TXL", carriers: 8 },
+				{ o: "FRA", d: "VIE", carriers: 10 },
+				{ o: "LED", d: "TXL", carriers: 2 },
+				{ o: "LHR", d: "ORY", carriers: 6 },
+				{ o: "MAD", d: "MUC", carriers: 10 },
+				{ o: "MAD", d: "TXL", carriers: 4 },
+				{ o: "MAD", d: "VIE", carriers: 6 },
+				{ o: "MAD", d: "ZRH", carriers: 6 },
+				{ o: "MUC", d: "PMI", carriers: 8 },
+				{ o: "MUC", d: "TXL", carriers: 6 },
+				{ o: "MUC", d: "VIE", carriers: 10 },
+				{ o: "MXP", d: "TXL", carriers: 4 },
+				{ o: "MXP", d: "VIE", carriers: 10 },
+				{ o: "ORY", d: "TXL", carriers: 2 },
+				{ o: "OSL", d: "TXL", carriers: 8 },
+				{ o: "PEK", d: "TXL", carriers: 4 },
+				{ o: "PMI", d: "VIE", carriers: 6 },
+				{ o: "PMI", d: "ZRH", carriers: 4 },
+				{ o: "TXL", d: "ZRH", carriers: 8 },
+				{ o: "VIE", d: "ZRH", carriers: 11 },
+				{ o: "AMS", d: "CPH", carriers: 12 },
+				{ o: "ATL", d: "DEN", carriers: 22 },
+				{ o: "ATL", d: "YYZ", carriers: 12 },
+				{ o: "BCN", d: "YYZ", carriers: 4 },
+				{ o: "CDG", d: "YYZ", carriers: 12 },
+				{ o: "CPH", d: "OSL", carriers: 9 },
+				{ o: "CPH", d: "YYZ", carriers: 6 },
+				{ o: "DEN", d: "YYZ", carriers: 4 },
+				{ o: "DOH", d: "FRA", carriers: 12 },
+				{ o: "DTW", d: "YYZ", carriers: 9 },
+				{ o: "DUB", d: "YYZ", carriers: 6 },
+				{ o: "EWR", d: "YYZ", carriers: 4 },
+				{ o: "FCO", d: "YYZ", carriers: 10 },
+				{ o: "FRA", d: "JED", carriers: 12 },
+				{ o: "FRA", d: "YYZ", carriers: 4 },
+				{ o: "HKG", d: "YYZ", carriers: 4 },
+				{ o: "IAD", d: "YYZ", carriers: 4 },
+				{ o: "IAH", d: "YYZ", carriers: 4 },
+				{ o: "IST", d: "YYZ", carriers: 4 },
+				{ o: "IST", d: "JED", carriers: 5 },
+				{ o: "MSP", d: "YYZ", carriers: 8 },
+				{ o: "MUC", d: "YYZ", carriers: 4 },
+				{ o: "NRT", d: "YYZ", carriers: 4 },
+				{ o: "PEK", d: "YYZ", carriers: 6 },
+				{ o: "PVG", d: "YYZ", carriers: 4 },
+				{ o: "SFO", d: "YYZ", carriers: 4 },
+				{ o: "VIE", d: "YYZ", carriers: 6 },
+				{ o: "YYZ", d: "ZRH", carriers: 4 },
+				{ o: "AGP", d: "CDG", carriers: 6 },
+				{ o: "AMS", d: "CDG", carriers: 6 },
+				{ o: "AMS", d: "DOH", carriers: 6 },
+				{ o: "AMS", d: "KUL", carriers: 6 },
+				{ o: "ARN", d: "CDG", carriers: 6 },
+				{ o: "ATL", d: "BRU", carriers: 6 },
+				{ o: "ATL", d: "CDG", carriers: 8 },
+				{ o: "ATL", d: "DTW", carriers: 16 },
+				{ o: "ATL", d: "DUB", carriers: 6 },
+				{ o: "ATL", d: "DUS", carriers: 6 },
+				{ o: "ATL", d: "EWR", carriers: 14 },
+				{ o: "ATL", d: "FCO", carriers: 10 },
+				{ o: "ATL", d: "FRA", carriers: 11 },
+				{ o: "ATL", d: "IAD", carriers: 18 },
+				{ o: "ATL", d: "IAH", carriers: 18 },
+				{ o: "ATL", d: "JFK", carriers: 17 },
+				{ o: "ATL", d: "LAS", carriers: 14 },
+				{ o: "ATL", d: "LAX", carriers: 19 },
+				{ o: "ATL", d: "MAD", carriers: 8 },
+				{ o: "ATL", d: "MAN", carriers: 8 },
+				{ o: "ATL", d: "MUC", carriers: 6 },
+				{ o: "ATL", d: "SFO", carriers: 20 },
+				{ o: "BCN", d: "CDG", carriers: 10 },
+				{ o: "BKK", d: "CDG", carriers: 6 },
+				{ o: "BRU", d: "JFK", carriers: 12 },
+				{ o: "CAN", d: "CDG", carriers: 4 },
+				{ o: "CAN", d: "SIN", carriers: 7 },
+				{ o: "CDG", d: "CPH", carriers: 8 },
+				{ o: "CDG", d: "DTW", carriers: 6 },
+				{ o: "CDG", d: "DUB", carriers: 6 },
+				{ o: "CDG", d: "DUS", carriers: 6 },
+				{ o: "CDG", d: "DXB", carriers: 6 },
+				{ o: "CDG", d: "EWR", carriers: 8 },
+				{ o: "CDG", d: "FCO", carriers: 6 },
+				{ o: "CDG", d: "FRA", carriers: 4 },
+				{ o: "CDG", d: "HKG", carriers: 6 },
+				{ o: "CDG", d: "IAD", carriers: 10 },
+				{ o: "CDG", d: "IAH", carriers: 6 },
+				{ o: "CDG", d: "ICN", carriers: 6 },
+				{ o: "CDG", d: "JED", carriers: 4 },
+				{ o: "CDG", d: "LAX", carriers: 8 },
+				{ o: "CDG", d: "LED", carriers: 4 },
+				{ o: "CDG", d: "LIS", carriers: 6 },
+				{ o: "CDG", d: "MAD", carriers: 6 },
+				{ o: "CDG", d: "MAN", carriers: 8 },
+				{ o: "CDG", d: "MSP", carriers: 4 },
+				{ o: "CDG", d: "MUC", carriers: 4 },
+				{ o: "CDG", d: "NRT", carriers: 6 },
+				{ o: "CDG", d: "OSL", carriers: 6 },
+				{ o: "CDG", d: "PEK", carriers: 8 },
+				{ o: "CDG", d: "PVG", carriers: 6 },
+				{ o: "CDG", d: "SFO", carriers: 8 },
+				{ o: "CDG", d: "SIN", carriers: 4 },
+				{ o: "CDG", d: "SVO", carriers: 4 },
+				{ o: "CDG", d: "TXL", carriers: 6 },
+				{ o: "CDG", d: "ZRH", carriers: 4 },
+				{ o: "DTW", d: "FRA", carriers: 10 },
+				{ o: "DTW", d: "LHR", carriers: 8 },
+				{ o: "FRA", d: "JFK", carriers: 16 },
+				{ o: "LAX", d: "MSP", carriers: 13 },
+				{ o: "LHR", d: "MSP", carriers: 8 },
+				{ o: "MAD", d: "ORY", carriers: 6 },
+				{ o: "MSP", d: "SFO", carriers: 8 },
+				{ o: "ORY", d: "PMI", carriers: 8 },
+				{ o: "ICN", d: "SFO", carriers: 14 },
+				{ o: "ICN", d: "SIN", carriers: 10 },
+				{ o: "CAN", d: "KUL", carriers: 6 },
+				{ o: "HKG", d: "KUL", carriers: 6 },
+				{ o: "BRU", d: "MAD", carriers: 10 },
+				{ o: "AMS", d: "LIS", carriers: 16 },
+				{ o: "BRU", d: "LIS", carriers: 16 },
+				{ o: "AGP", d: "FCO", carriers: 6 },
+				{ o: "AMS", d: "ARN", carriers: 8 },
+				{ o: "AMS", d: "DUS", carriers: 4 },
+				{ o: "AMS", d: "DXB", carriers: 6 },
+				{ o: "AMS", d: "FCO", carriers: 8 },
+				{ o: "AMS", d: "TXL", carriers: 4 },
+				{ o: "BCN", d: "FCO", carriers: 8 },
+				{ o: "BCN", d: "PMI", carriers: 12 },
+				{ o: "BRU", d: "FCO", carriers: 12 },
+				{ o: "CPH", d: "FCO", carriers: 8 },
+				{ o: "FCO", d: "FRA", carriers: 6 },
+				{ o: "FCO", d: "ICN", carriers: 2 },
+				{ o: "FCO", d: "IST", carriers: 4 },
+				{ o: "FCO", d: "JED", carriers: 4 },
+				{ o: "FCO", d: "LAX", carriers: 4 },
+				{ o: "FCO", d: "LED", carriers: 6 },
+				{ o: "FCO", d: "LIS", carriers: 5 },
+				{ o: "FCO", d: "MAD", carriers: 6 },
+				{ o: "FCO", d: "MIA", carriers: 4 },
+				{ o: "FCO", d: "MUC", carriers: 4 },
+				{ o: "FCO", d: "MXP", carriers: 11 },
+				{ o: "FCO", d: "NRT", carriers: 2 },
+				{ o: "FCO", d: "PVG", carriers: 4 },
+				{ o: "FCO", d: "SVO", carriers: 4 },
+				{ o: "FCO", d: "ZRH", carriers: 6 },
+				{ o: "ICN", d: "MXP", carriers: 2 },
+				{ o: "JED", d: "MXP", carriers: 4 },
+				{ o: "LED", d: "MXP", carriers: 6 },
+				{ o: "LIS", d: "MXP", carriers: 7 },
+				{ o: "MAD", d: "PMI", carriers: 8 },
+				{ o: "MXP", d: "NRT", carriers: 2 },
+				{ o: "MXP", d: "SVO", carriers: 4 },
+				{ o: "DEN", d: "JFK", carriers: 4 },
+				{ o: "DFW", d: "DXB", carriers: 4 },
+				{ o: "DXB", d: "IAD", carriers: 6 },
+				{ o: "DXB", d: "IAH", carriers: 4 },
+				{ o: "DXB", d: "JFK", carriers: 4 },
+				{ o: "DXB", d: "LAX", carriers: 4 },
+				{ o: "DXB", d: "MXP", carriers: 4 },
+				{ o: "DXB", d: "SFO", carriers: 4 },
+				{ o: "IAD", d: "JFK", carriers: 6 },
+				{ o: "AGP", d: "LGW", carriers: 12 },
+				{ o: "AMS", d: "LGW", carriers: 4 },
+				{ o: "BCN", d: "LGW", carriers: 12 },
+				{ o: "BKK", d: "LHR", carriers: 8 },
+				{ o: "CTU", d: "LHR", carriers: 2 },
+				{ o: "DME", d: "LHR", carriers: 2 },
+				{ o: "FCO", d: "LGW", carriers: 6 },
+				{ o: "HKG", d: "LHR", carriers: 6 },
+				{ o: "ICN", d: "LHR", carriers: 6 },
+				{ o: "JED", d: "LHR", carriers: 4 },
+				{ o: "LED", d: "LHR", carriers: 2 },
+				{ o: "LHR", d: "MAD", carriers: 4 },
+				{ o: "LHR", d: "NRT", carriers: 8 },
+				{ o: "LHR", d: "PEK", carriers: 6 },
+				{ o: "LHR", d: "PMI", carriers: 4 },
+				{ o: "LHR", d: "PVG", carriers: 8 },
+				{ o: "LHR", d: "SIN", carriers: 8 },
+				{ o: "DUS", d: "MAN", carriers: 4 },
+				{ o: "MAN", d: "MXP", carriers: 2 },
+				{ o: "DOH", d: "DXB", carriers: 9 },
+				{ o: "AMS", d: "BKK", carriers: 6 },
+				{ o: "BKK", d: "VIE", carriers: 6 },
+				{ o: "DME", d: "FCO", carriers: 4 },
+				{ o: "ARN", d: "PEK", carriers: 4 },
+				{ o: "BKK", d: "PEK", carriers: 6 },
+				{ o: "CAN", d: "IST", carriers: 4 },
+				{ o: "CAN", d: "NRT", carriers: 12 },
+				{ o: "CAN", d: "PEK", carriers: 8 },
+				{ o: "CAN", d: "PVG", carriers: 12 },
+				{ o: "CPH", d: "FRA", carriers: 8 },
+				{ o: "CPH", d: "PEK", carriers: 4 },
+				{ o: "CTU", d: "FRA", carriers: 4 },
+				{ o: "CTU", d: "NRT", carriers: 4 },
+				{ o: "CTU", d: "SIN", carriers: 6 },
+				{ o: "DUS", d: "PEK", carriers: 4 },
+				{ o: "DXB", d: "PEK", carriers: 4 },
+				{ o: "EWR", d: "PEK", carriers: 4 },
+				{ o: "EWR", d: "PVG", carriers: 4 },
+				{ o: "FCO", d: "PEK", carriers: 2 },
+				{ o: "FRA", d: "PEK", carriers: 4 },
+				{ o: "FRA", d: "PVG", carriers: 6 },
+				{ o: "HKG", d: "PEK", carriers: 12 },
+				{ o: "IAD", d: "PEK", carriers: 4 },
+				{ o: "IAH", d: "PEK", carriers: 4 },
+				{ o: "ICN", d: "PEK", carriers: 8 },
+				{ o: "IST", d: "PEK", carriers: 4 },
+				{ o: "IST", d: "PVG", carriers: 4 },
+				{ o: "JFK", d: "PEK", carriers: 6 },
+				{ o: "LAX", d: "PEK", carriers: 6 },
+				{ o: "LGW", d: "PEK", carriers: 4 },
+				{ o: "MAD", d: "PEK", carriers: 4 },
+				{ o: "MUC", d: "PEK", carriers: 4 },
+				{ o: "MUC", d: "PVG", carriers: 4 },
+				{ o: "MXP", d: "PEK", carriers: 2 },
+				{ o: "MXP", d: "PVG", carriers: 2 },
+				{ o: "NRT", d: "PEK", carriers: 12 },
+				{ o: "NRT", d: "PVG", carriers: 10 },
+				{ o: "PEK", d: "PVG", carriers: 12 },
+				{ o: "PEK", d: "SFO", carriers: 6 },
+				{ o: "PEK", d: "SIN", carriers: 4 },
+				{ o: "PEK", d: "SVO", carriers: 8 },
+				{ o: "PEK", d: "VIE", carriers: 4 },
+				{ o: "PVG", d: "SFO", carriers: 8 },
+				{ o: "AMS", d: "MAN", carriers: 5 },
+				{ o: "BKK", d: "DME", carriers: 6 },
+				{ o: "IAH", d: "SFO", carriers: 3 },
+				{ o: "AMS", d: "HKG", carriers: 4 },
+				{ o: "ATH", d: "DOH", carriers: 4 },
+				{ o: "BCN", d: "DOH", carriers: 5 },
+				{ o: "BKK", d: "HKG", carriers: 24 },
+				{ o: "CAN", d: "HKG", carriers: 6 },
+				{ o: "DME", d: "HKG", carriers: 6 },
+				{ o: "DOH", d: "HKG", carriers: 4 },
+				{ o: "DOH", d: "MAD", carriers: 6 },
+				{ o: "DXB", d: "HKG", carriers: 4 },
+				{ o: "FCO", d: "HKG", carriers: 2 },
+				{ o: "FRA", d: "HKG", carriers: 4 },
+				{ o: "HKG", d: "MXP", carriers: 2 },
+				{ o: "FRA", d: "MUC", carriers: 5 },
+				{ o: "AMS", d: "CAN", carriers: 4 },
+				{ o: "AMS", d: "CTU", carriers: 4 },
+				{ o: "AMS", d: "PEK", carriers: 4 },
+				{ o: "AMS", d: "PVG", carriers: 6 },
+				{ o: "BKK", d: "CAN", carriers: 12 },
+				{ o: "CAN", d: "DXB", carriers: 4 },
+				{ o: "CAN", d: "ICN", carriers: 6 },
+				{ o: "CAN", d: "LAX", carriers: 4 },
+				{ o: "CAN", d: "LHR", carriers: 2 },
+				{ o: "CAN", d: "SVO", carriers: 4 },
+				{ o: "DTW", d: "PEK", carriers: 6 },
+				{ o: "DTW", d: "PVG", carriers: 6 },
+				{ o: "ICN", d: "PVG", carriers: 10 },
+				{ o: "KUL", d: "PVG", carriers: 8 },
+				{ o: "CTU", d: "KUL", carriers: 2 },
+				{ o: "ICN", d: "KUL", carriers: 6 },
+				{ o: "JED", d: "KUL", carriers: 8 },
+				{ o: "KUL", d: "PEK", carriers: 4 },
+				{ o: "FRA", d: "LAS", carriers: 2 },
+				{ o: "LAS", d: "MAN", carriers: 8 },
+				{ o: "MAN", d: "PMI", carriers: 16 },
+				{ o: "AMS", d: "ATL", carriers: 4 },
+				{ o: "AMS", d: "DFW", carriers: 4 },
+				{ o: "AMS", d: "DTW", carriers: 4 },
+				{ o: "AMS", d: "EWR", carriers: 8 },
+				{ o: "AMS", d: "IAD", carriers: 8 },
+				{ o: "AMS", d: "IAH", carriers: 8 },
+				{ o: "AMS", d: "JFK", carriers: 4 },
+				{ o: "AMS", d: "LAX", carriers: 4 },
+				{ o: "AMS", d: "MSP", carriers: 4 },
+				{ o: "AMS", d: "ORD", carriers: 8 },
+				{ o: "AMS", d: "SFO", carriers: 4 },
+				{ o: "AMS", d: "YYZ", carriers: 6 },
+				{ o: "ATL", d: "DXB", carriers: 2 },
+				{ o: "ATL", d: "ICN", carriers: 4 },
+				{ o: "ATL", d: "NRT", carriers: 2 },
+				{ o: "ATL", d: "ZRH", carriers: 2 },
+				{ o: "DEN", d: "DTW", carriers: 10 },
+				{ o: "DEN", d: "MSP", carriers: 12 },
+				{ o: "DTW", d: "EWR", carriers: 4 },
+				{ o: "DTW", d: "IAD", carriers: 4 },
+				{ o: "DTW", d: "IAH", carriers: 6 },
+				{ o: "DTW", d: "ICN", carriers: 2 },
+				{ o: "DTW", d: "JFK", carriers: 2 },
+				{ o: "DTW", d: "LAS", carriers: 6 },
+				{ o: "DTW", d: "LAX", carriers: 5 },
+				{ o: "DTW", d: "MSP", carriers: 2 },
+				{ o: "DTW", d: "NRT", carriers: 2 },
+				{ o: "DTW", d: "SFO", carriers: 2 },
+				{ o: "EWR", d: "MSP", carriers: 4 },
+				{ o: "IAD", d: "ICN", carriers: 4 },
+				{ o: "IAD", d: "MSP", carriers: 4 },
+				{ o: "IAD", d: "SVO", carriers: 4 },
+				{ o: "IAH", d: "MSP", carriers: 6 },
+				{ o: "ICN", d: "JFK", carriers: 8 },
+				{ o: "ICN", d: "LAS", carriers: 4 },
+				{ o: "ICN", d: "LAX", carriers: 10 },
+				{ o: "ICN", d: "ORD", carriers: 6 },
+				{ o: "JFK", d: "MSP", carriers: 4 },
+				{ o: "JFK", d: "PHL", carriers: 2 },
+				{ o: "JFK", d: "PVG", carriers: 4 },
+				{ o: "JFK", d: "SVO", carriers: 4 },
+				{ o: "LAS", d: "MSP", carriers: 6 },
+				{ o: "LAX", d: "SVO", carriers: 4 },
+				{ o: "MIA", d: "SVO", carriers: 4 },
+				{ o: "MSP", d: "NRT", carriers: 2 },
+				{ o: "AGP", d: "ARN", carriers: 4 },
+				{ o: "AGP", d: "CPH", carriers: 8 },
+				{ o: "AGP", d: "OSL", carriers: 4 },
+				{ o: "AMS", d: "OSL", carriers: 6 },
+				{ o: "ARN", d: "ATH", carriers: 4 },
+				{ o: "ARN", d: "BCN", carriers: 8 },
+				{ o: "ARN", d: "BKK", carriers: 6 },
+				{ o: "ARN", d: "CPH", carriers: 6 },
+				{ o: "ARN", d: "FCO", carriers: 4 },
+				{ o: "ARN", d: "JFK", carriers: 2 },
+				{ o: "ARN", d: "LAX", carriers: 2 },
+				{ o: "ARN", d: "LGW", carriers: 2 },
+				{ o: "ARN", d: "MAN", carriers: 6 },
+				{ o: "ARN", d: "MUC", carriers: 6 },
+				{ o: "ARN", d: "ORY", carriers: 2 },
+				{ o: "ARN", d: "OSL", carriers: 6 },
+				{ o: "ARN", d: "PMI", carriers: 4 },
+				{ o: "ATH", d: "CPH", carriers: 4 },
+				{ o: "BCN", d: "CPH", carriers: 8 },
+				{ o: "BCN", d: "OSL", carriers: 8 },
+				{ o: "BKK", d: "OSL", carriers: 6 },
+				{ o: "CPH", d: "DUB", carriers: 6 },
+				{ o: "CPH", d: "JFK", carriers: 2 },
+				{ o: "CPH", d: "LAX", carriers: 2 },
+				{ o: "CPH", d: "LGW", carriers: 4 },
+				{ o: "CPH", d: "LIS", carriers: 6 },
+				{ o: "CPH", d: "MAD", carriers: 6 },
+				{ o: "CPH", d: "ORY", carriers: 2 },
+				{ o: "DUB", d: "OSL", carriers: 4 },
+				{ o: "FCO", d: "OSL", carriers: 4 },
+				{ o: "JFK", d: "OSL", carriers: 2 },
+				{ o: "LED", d: "OSL", carriers: 2 },
+				{ o: "LGW", d: "OSL", carriers: 2 },
+				{ o: "LGW", d: "PMI", carriers: 12 },
+				{ o: "LIS", d: "OSL", carriers: 4 },
+				{ o: "MAN", d: "OSL", carriers: 4 },
+				{ o: "MUC", d: "OSL", carriers: 6 },
+				{ o: "MXP", d: "OSL", carriers: 4 },
+				{ o: "ORY", d: "OSL", carriers: 2 },
+				{ o: "OSL", d: "PMI", carriers: 4 },
+				{ o: "OSL", d: "VIE", carriers: 4 },
+				{ o: "BCN", d: "MAD", carriers: 7 },
+				{ o: "AGP", d: "DUB", carriers: 4 },
+				{ o: "AMS", d: "DUB", carriers: 2 },
+				{ o: "ARN", d: "DUB", carriers: 4 },
+				{ o: "ATH", d: "DUB", carriers: 2 },
+				{ o: "BCN", d: "DUB", carriers: 4 },
+				{ o: "BRU", d: "DUB", carriers: 2 },
+				{ o: "DUB", d: "FCO", carriers: 2 },
+				{ o: "DUB", d: "FRA", carriers: 4 },
+				{ o: "DUB", d: "IAD", carriers: 4 },
+				{ o: "DUB", d: "LGW", carriers: 4 },
+				{ o: "DUB", d: "LIS", carriers: 4 },
+				{ o: "DUB", d: "MAD", carriers: 6 },
+				{ o: "DUB", d: "MAN", carriers: 4 },
+				{ o: "DUB", d: "MUC", carriers: 4 },
+				{ o: "DUB", d: "MXP", carriers: 2 },
+				{ o: "DUB", d: "PMI", carriers: 4 },
+				{ o: "DUB", d: "SFO", carriers: 2 },
+				{ o: "DUB", d: "VIE", carriers: 2 },
+				{ o: "DUB", d: "ZRH", carriers: 4 },
+				{ o: "ARN", d: "DXB", carriers: 4 },
+				{ o: "ATH", d: "DXB", carriers: 2 },
+				{ o: "BCN", d: "DXB", carriers: 2 },
+				{ o: "BKK", d: "DXB", carriers: 6 },
+				{ o: "CPH", d: "DXB", carriers: 4 },
+				{ o: "DME", d: "DXB", carriers: 2 },
+				{ o: "DUB", d: "DXB", carriers: 4 },
+				{ o: "DUS", d: "DXB", carriers: 4 },
+				{ o: "DXB", d: "FCO", carriers: 2 },
+				{ o: "DXB", d: "FRA", carriers: 6 },
+				{ o: "DXB", d: "ICN", carriers: 4 },
+				{ o: "DXB", d: "IST", carriers: 6 },
+				{ o: "DXB", d: "JED", carriers: 10 },
+				{ o: "DXB", d: "KUL", carriers: 6 },
+				{ o: "DXB", d: "LED", carriers: 2 },
+				{ o: "DXB", d: "LGW", carriers: 4 },
+				{ o: "DXB", d: "LIS", carriers: 4 },
+				{ o: "DXB", d: "MAD", carriers: 2 },
+				{ o: "DXB", d: "MAN", carriers: 4 },
+				{ o: "DXB", d: "MUC", carriers: 6 },
+				{ o: "DXB", d: "NRT", carriers: 4 },
+				{ o: "DXB", d: "PVG", carriers: 2 },
+				{ o: "DXB", d: "SIN", carriers: 10 },
+				{ o: "DXB", d: "VIE", carriers: 4 },
+				{ o: "DXB", d: "YYZ", carriers: 2 },
+				{ o: "DXB", d: "ZRH", carriers: 6 },
+				{ o: "AMS", d: "FRA", carriers: 8 },
+				{ o: "ARN", d: "FRA", carriers: 6 },
+				{ o: "BCN", d: "FRA", carriers: 8 },
+				{ o: "BRU", d: "CDG", carriers: 4 },
+				{ o: "BRU", d: "FRA", carriers: 6 },
+				{ o: "DUS", d: "FRA", carriers: 4 },
+				{ o: "FRA", d: "LIS", carriers: 9 },
+				{ o: "FRA", d: "MXP", carriers: 4 },
+				{ o: "FRA", d: "OSL", carriers: 6 },
+				{ o: "FRA", d: "ZRH", carriers: 6 },
+				{ o: "AGP", d: "LIS", carriers: 5 },
+				{ o: "DEN", d: "IAH", carriers: 6 },
+				{ o: "DEN", d: "LAS", carriers: 10 },
+				{ o: "DEN", d: "SFO", carriers: 7 },
+				{ o: "DEN", d: "IAD", carriers: 5 },
+				{ o: "AGP", d: "BCN", carriers: 6 },
+				{ o: "AGP", d: "BRU", carriers: 9 },
+				{ o: "AGP", d: "MAN", carriers: 10 },
+				{ o: "AGP", d: "STN", carriers: 4 },
+				{ o: "ATH", d: "STN", carriers: 2 },
+				{ o: "BCN", d: "BRU", carriers: 10 },
+				{ o: "BCN", d: "MAN", carriers: 6 },
+				{ o: "BCN", d: "STN", carriers: 2 },
+				{ o: "BRU", d: "PMI", carriers: 8 },
+				{ o: "DUB", d: "STN", carriers: 2 },
+				{ o: "LIS", d: "MAN", carriers: 4 },
+				{ o: "LIS", d: "STN", carriers: 2 },
+				{ o: "MAD", d: "MAN", carriers: 2 },
+				{ o: "MAD", d: "STN", carriers: 2 },
+				{ o: "PMI", d: "STN", carriers: 7 },
+				{ o: "DUS", d: "LED", carriers: 6 },
+				{ o: "IST", d: "SIN", carriers: 6 },
+				{ o: "LAS", d: "SFO", carriers: 8 },
+				{ o: "DME", d: "VIE", carriers: 10 },
+				{ o: "BRU", d: "CPH", carriers: 8 },
+				{ o: "BRU", d: "MXP", carriers: 8 },
+				{ o: "BRU", d: "PEK", carriers: 4 },
+				{ o: "BRU", d: "TXL", carriers: 6 },
+				{ o: "LED", d: "PEK", carriers: 4 },
+				{ o: "AGP", d: "AMS", carriers: 6 },
+				{ o: "AMS", d: "ATH", carriers: 4 },
+				{ o: "AMS", d: "BCN", carriers: 10 },
+				{ o: "AMS", d: "PMI", carriers: 6 },
+				{ o: "AGP", d: "DME", carriers: 4 },
+				{ o: "AGP", d: "MAD", carriers: 4 },
+				{ o: "AGP", d: "ORY", carriers: 6 },
+				{ o: "ARN", d: "MAD", carriers: 4 },
+				{ o: "BCN", d: "DME", carriers: 6 },
+				{ o: "BCN", d: "LED", carriers: 6 },
+				{ o: "BCN", d: "LIS", carriers: 8 },
+				{ o: "BCN", d: "MUC", carriers: 6 },
+				{ o: "BCN", d: "MXP", carriers: 8 },
+				{ o: "BCN", d: "ORY", carriers: 4 },
+				{ o: "BCN", d: "ZRH", carriers: 6 },
+				{ o: "DME", d: "MAD", carriers: 4 },
+				{ o: "DME", d: "PMI", carriers: 4 },
+				{ o: "FCO", d: "ORY", carriers: 6 },
+				{ o: "LIS", d: "MAD", carriers: 12 },
+				{ o: "LIS", d: "ORY", carriers: 10 },
+				{ o: "MAD", d: "MXP", carriers: 6 },
+				{ o: "DME", d: "NRT", carriers: 4 },
+				{ o: "DOH", d: "NRT", carriers: 6 },
+				{ o: "FRA", d: "NRT", carriers: 2 },
+				{ o: "AMS", d: "ICN", carriers: 4 },
+				{ o: "FRA", d: "ICN", carriers: 6 },
+				{ o: "IAH", d: "ICN", carriers: 2 },
+				{ o: "ICN", d: "IST", carriers: 6 },
+				{ o: "ICN", d: "LED", carriers: 2 },
+				{ o: "ICN", d: "MAD", carriers: 2 },
+				{ o: "ICN", d: "SVO", carriers: 4 },
+				{ o: "ICN", d: "VIE", carriers: 1 },
+				{ o: "ICN", d: "YYZ", carriers: 2 },
+				{ o: "ICN", d: "ZRH", carriers: 1 },
+				{ o: "AMS", d: "BRU", carriers: 2 },
+				{ o: "AMS", d: "IST", carriers: 4 },
+				{ o: "AMS", d: "LED", carriers: 4 },
+				{ o: "AMS", d: "MAD", carriers: 6 },
+				{ o: "AMS", d: "MUC", carriers: 4 },
+				{ o: "AMS", d: "NRT", carriers: 2 },
+				{ o: "AMS", d: "SIN", carriers: 5 },
+				{ o: "AMS", d: "SVO", carriers: 4 },
+				{ o: "AMS", d: "VIE", carriers: 4 },
+				{ o: "AMS", d: "ZRH", carriers: 5 },
+				{ o: "DXB", d: "SVO", carriers: 4 },
+				{ o: "AGP", d: "FRA", carriers: 2 },
+				{ o: "BCN", d: "EWR", carriers: 4 },
+				{ o: "BKK", d: "FRA", carriers: 4 },
+				{ o: "BKK", d: "MUC", carriers: 4 },
+				{ o: "BRU", d: "IAD", carriers: 6 },
+				{ o: "BRU", d: "MUC", carriers: 4 },
+				{ o: "CLT", d: "MUC", carriers: 2 },
+				{ o: "CPH", d: "MUC", carriers: 4 },
+				{ o: "DEN", d: "FRA", carriers: 4 },
+				{ o: "DUB", d: "EWR", carriers: 4 },
+				{ o: "DUS", d: "EWR", carriers: 4 },
+				{ o: "DUS", d: "NRT", carriers: 4 },
+				{ o: "DUS", d: "OSL", carriers: 4 },
+				{ o: "EWR", d: "FCO", carriers: 4 },
+				{ o: "EWR", d: "FRA", carriers: 4 },
+				{ o: "EWR", d: "MAD", carriers: 4 },
+				{ o: "EWR", d: "MAN", carriers: 4 },
+				{ o: "EWR", d: "MUC", carriers: 4 },
+				{ o: "EWR", d: "MXP", carriers: 4 },
+				{ o: "EWR", d: "TXL", carriers: 4 },
+				{ o: "FRA", d: "IAD", carriers: 4 },
+				{ o: "FRA", d: "IAH", carriers: 4 },
+				{ o: "FRA", d: "IST", carriers: 6 },
+				{ o: "FRA", d: "LAX", carriers: 4 },
+				{ o: "FRA", d: "LED", carriers: 4 },
+				{ o: "FRA", d: "MAN", carriers: 2 },
+				{ o: "FRA", d: "MIA", carriers: 4 },
+				{ o: "FRA", d: "ORD", carriers: 4 },
+				{ o: "FRA", d: "SFO", carriers: 6 },
+				{ o: "FRA", d: "SIN", carriers: 6 },
+				{ o: "HKG", d: "MUC", carriers: 2 },
+				{ o: "IAD", d: "MUC", carriers: 4 },
+				{ o: "ICN", d: "MUC", carriers: 2 },
+				{ o: "IST", d: "MUC", carriers: 8 },
+				{ o: "JFK", d: "MUC", carriers: 4 },
+				{ o: "LAX", d: "MUC", carriers: 4 },
+				{ o: "LED", d: "MUC", carriers: 4 },
+				{ o: "LIS", d: "MUC", carriers: 5 },
+				{ o: "MAN", d: "MUC", carriers: 12 },
+				{ o: "MUC", d: "MXP", carriers: 2 },
+				{ o: "MUC", d: "ORD", carriers: 4 },
+				{ o: "MUC", d: "SFO", carriers: 4 },
+				{ o: "MUC", d: "ZRH", carriers: 4 },
+				{ o: "FCO", d: "MAN", carriers: 2 },
+				{ o: "MAN", d: "VIE", carriers: 2 },
+				{ o: "AGP", d: "ZRH", carriers: 2 },
+				{ o: "ARN", d: "ZRH", carriers: 4 },
+				{ o: "ATH", d: "ZRH", carriers: 2 },
+				{ o: "BKK", d: "ZRH", carriers: 4 },
+				{ o: "BRU", d: "ZRH", carriers: 4 },
+				{ o: "CPH", d: "ZRH", carriers: 4 },
+				{ o: "DME", d: "ZRH", carriers: 2 },
+				{ o: "EWR", d: "ZRH", carriers: 4 },
+				{ o: "HKG", d: "ZRH", carriers: 2 },
+				{ o: "IAD", d: "ZRH", carriers: 4 },
+				{ o: "IST", d: "ZRH", carriers: 8 },
+				{ o: "LAS", d: "ZRH", carriers: 2 },
+				{ o: "LAX", d: "ZRH", carriers: 4 },
+				{ o: "LED", d: "ZRH", carriers: 2 },
+				{ o: "MAN", d: "ZRH", carriers: 2 },
+				{ o: "MIA", d: "ZRH", carriers: 4 },
+				{ o: "MXP", d: "ZRH", carriers: 2 },
+				{ o: "NRT", d: "ZRH", carriers: 4 },
+				{ o: "ORD", d: "ZRH", carriers: 4 },
+				{ o: "OSL", d: "ZRH", carriers: 4 },
+				{ o: "PEK", d: "ZRH", carriers: 2 },
+				{ o: "PVG", d: "ZRH", carriers: 2 },
+				{ o: "SFO", d: "ZRH", carriers: 4 },
+				{ o: "SIN", d: "ZRH", carriers: 6 },
+				{ o: "DOH", d: "KUL", carriers: 4 },
+				{ o: "IST", d: "KUL", carriers: 4 },
+				{ o: "BKK", d: "CTU", carriers: 4 },
+				{ o: "PVG", d: "SVO", carriers: 4 },
+				{ o: "DEN", d: "NRT", carriers: 4 },
+				{ o: "EWR", d: "NRT", carriers: 4 },
+				{ o: "IAD", d: "NRT", carriers: 4 },
+				{ o: "IAH", d: "NRT", carriers: 4 },
+				{ o: "IST", d: "NRT", carriers: 4 },
+				{ o: "NRT", d: "SFO", carriers: 4 },
+				{ o: "NRT", d: "VIE", carriers: 4 },
+				{ o: "IAH", d: "LAS", carriers: 4 },
+				{ o: "SVO", d: "TXL", carriers: 4 },
+				{ o: "AMS", d: "MIA", carriers: 1 },
+				{ o: "BRU", d: "VIE", carriers: 4 },
+				{ o: "IAD", d: "VIE", carriers: 4 },
+				{ o: "IST", d: "VIE", carriers: 6 },
+				{ o: "JFK", d: "VIE", carriers: 4 },
+				{ o: "LED", d: "VIE", carriers: 6 },
+				{ o: "LIS", d: "VIE", carriers: 4 },
+				{ o: "ORD", d: "VIE", carriers: 4 },
+				{ o: "DOH", d: "ICN", carriers: 4 },
+				{ o: "CDG", d: "MXP", carriers: 4 },
+				{ o: "ARN", d: "DOH", carriers: 2 },
+				{ o: "BKK", d: "DOH", carriers: 2 },
+				{ o: "BRU", d: "DOH", carriers: 2 },
+				{ o: "CAN", d: "DOH", carriers: 2 },
+				{ o: "CDG", d: "DOH", carriers: 2 },
+				{ o: "CPH", d: "DOH", carriers: 2 },
+				{ o: "CTU", d: "DOH", carriers: 2 },
+				{ o: "DME", d: "DOH", carriers: 2 },
+				{ o: "DOH", d: "FCO", carriers: 2 },
+				{ o: "DOH", d: "IST", carriers: 4 },
+				{ o: "DOH", d: "JED", carriers: 4 },
+				{ o: "DOH", d: "LHR", carriers: 4 },
+				{ o: "DOH", d: "MAN", carriers: 4 },
+				{ o: "DOH", d: "MUC", carriers: 4 },
+				{ o: "DOH", d: "MXP", carriers: 2 },
+				{ o: "DOH", d: "OSL", carriers: 2 },
+				{ o: "DOH", d: "PEK", carriers: 2 },
+				{ o: "DOH", d: "PVG", carriers: 2 },
+				{ o: "DOH", d: "SIN", carriers: 2 },
+				{ o: "DOH", d: "TXL", carriers: 2 },
+				{ o: "DOH", d: "VIE", carriers: 2 },
+				{ o: "DOH", d: "ZRH", carriers: 2 },
+				{ o: "ARN", d: "LIS", carriers: 4 },
+				{ o: "LGW", d: "LIS", carriers: 6 },
+				{ o: "LIS", d: "YYZ", carriers: 6 },
+				{ o: "DME", d: "LIS", carriers: 4 },
+				{ o: "ARN", d: "BRU", carriers: 2 },
+				{ o: "ARN", d: "EWR", carriers: 4 },
+				{ o: "ARN", d: "IST", carriers: 4 },
+				{ o: "ARN", d: "LED", carriers: 4 },
+				{ o: "ARN", d: "ORD", carriers: 2 },
+				{ o: "ARN", d: "SVO", carriers: 4 },
+				{ o: "BKK", d: "CPH", carriers: 4 },
+				{ o: "BRU", d: "OSL", carriers: 4 },
+				{ o: "CPH", d: "EWR", carriers: 2 },
+				{ o: "CPH", d: "IAD", carriers: 2 },
+				{ o: "CPH", d: "IST", carriers: 4 },
+				{ o: "CPH", d: "LED", carriers: 2 },
+				{ o: "CPH", d: "MAN", carriers: 6 },
+				{ o: "CPH", d: "MXP", carriers: 4 },
+				{ o: "CPH", d: "NRT", carriers: 2 },
+				{ o: "CPH", d: "ORD", carriers: 2 },
+				{ o: "CPH", d: "PVG", carriers: 2 },
+				{ o: "CPH", d: "SFO", carriers: 2 },
+				{ o: "CPH", d: "SIN", carriers: 4 },
+				{ o: "CPH", d: "SVO", carriers: 4 },
+				{ o: "EWR", d: "OSL", carriers: 4 },
+				{ o: "IST", d: "OSL", carriers: 4 },
+				{ o: "OSL", d: "SVO", carriers: 4 },
+				{ o: "BKK", d: "BRU", carriers: 4 },
+				{ o: "BRU", d: "DME", carriers: 2 },
+				{ o: "BRU", d: "MAN", carriers: 3 },
+				{ o: "BRU", d: "ORD", carriers: 4 },
+				{ o: "BCN", d: "SIN", carriers: 2 },
+				{ o: "DME", d: "IAH", carriers: 4 },
+				{ o: "DME", d: "SIN", carriers: 4 },
+				{ o: "FCO", d: "SIN", carriers: 2 },
+				{ o: "MUC", d: "SIN", carriers: 8 },
+				{ o: "MXP", d: "SIN", carriers: 2 },
+				{ o: "AGP", d: "SVO", carriers: 4 },
+				{ o: "ATH", d: "SVO", carriers: 2 },
+				{ o: "BCN", d: "SVO", carriers: 4 },
+				{ o: "BKK", d: "SVO", carriers: 2 },
+				{ o: "BRU", d: "SVO", carriers: 2 },
+				{ o: "DUS", d: "SVO", carriers: 2 },
+				{ o: "FRA", d: "SVO", carriers: 2 },
+				{ o: "HKG", d: "SVO", carriers: 2 },
+				{ o: "IST", d: "LED", carriers: 4 },
+				{ o: "IST", d: "SVO", carriers: 2 },
+				{ o: "LED", d: "SVO", carriers: 2 },
+				{ o: "LHR", d: "SVO", carriers: 2 },
+				{ o: "MAD", d: "SVO", carriers: 4 },
+				{ o: "MUC", d: "SVO", carriers: 2 },
+				{ o: "NRT", d: "SVO", carriers: 2 },
+				{ o: "SVO", d: "VIE", carriers: 2 },
+				{ o: "SVO", d: "YYZ", carriers: 2 },
+				{ o: "SVO", d: "ZRH", carriers: 2 },
+				{ o: "CAN", d: "JED", carriers: 2 },
+				{ o: "IAD", d: "JED", carriers: 2 },
+				{ o: "JED", d: "JFK", carriers: 2 },
+				{ o: "JED", d: "LAX", carriers: 2 },
+				{ o: "JED", d: "MAD", carriers: 4 },
+				{ o: "JED", d: "MAN", carriers: 4 },
+				{ o: "JED", d: "SIN", carriers: 2 },
+				{ o: "JED", d: "YYZ", carriers: 2 },
+				{ o: "BKK", d: "FCO", carriers: 2 },
+				{ o: "BKK", d: "IST", carriers: 4 },
+				{ o: "BKK", d: "MAD", carriers: 2 },
+				{ o: "BKK", d: "MXP", carriers: 2 },
+				{ o: "AGP", d: "IST", carriers: 2 },
+				{ o: "BCN", d: "IST", carriers: 2 },
+				{ o: "BRU", d: "IST", carriers: 2 },
+				{ o: "DUB", d: "IST", carriers: 2 },
+				{ o: "DUS", d: "IST", carriers: 2 },
+				{ o: "HKG", d: "IST", carriers: 2 },
+				{ o: "IAD", d: "IST", carriers: 4 },
+				{ o: "IAH", d: "IST", carriers: 4 },
+				{ o: "IST", d: "JFK", carriers: 4 },
+				{ o: "IST", d: "LAX", carriers: 4 },
+				{ o: "IST", d: "LGW", carriers: 2 },
+				{ o: "IST", d: "LIS", carriers: 4 },
+				{ o: "IST", d: "MAD", carriers: 2 },
+				{ o: "IST", d: "MAN", carriers: 2 },
+				{ o: "IST", d: "MXP", carriers: 2 },
+				{ o: "IST", d: "ORD", carriers: 4 },
+				{ o: "IST", d: "TXL", carriers: 2 },
+				{ o: "ATH", d: "ORY", carriers: 4 },
+				{ o: "DUS", d: "LIS", carriers: 2 },
+				{ o: "EWR", d: "LIS", carriers: 6 },
+				{ o: "LIS", d: "MIA", carriers: 4 },
+				{ o: "ATH", d: "YYZ", carriers: 2 },
+				{ o: "LGW", d: "YYZ", carriers: 2 },
+				{ o: "MAN", d: "YYZ", carriers: 2 },
+				{ o: "AGP", d: "MXP", carriers: 2 },
+				{ o: "AMS", d: "MXP", carriers: 2 },
+				{ o: "AMS", d: "STN", carriers: 2 },
+				{ o: "ATH", d: "LGW", carriers: 2 },
+				{ o: "BRU", d: "LGW", carriers: 2 },
+				{ o: "CDG", d: "LGW", carriers: 2 },
+				{ o: "CPH", d: "STN", carriers: 2 },
+				{ o: "DME", d: "LGW", carriers: 4 },
+				{ o: "DME", d: "MAN", carriers: 2 },
+				{ o: "DUS", d: "LGW", carriers: 2 },
+				{ o: "LGW", d: "MAD", carriers: 4 },
+				{ o: "LGW", d: "MUC", carriers: 2 },
+				{ o: "LGW", d: "MXP", carriers: 2 },
+				{ o: "LGW", d: "VIE", carriers: 2 },
+				{ o: "LGW", d: "ZRH", carriers: 2 },
+				{ o: "MUC", d: "STN", carriers: 2 },
+				{ o: "MXP", d: "PMI", carriers: 2 },
+				{ o: "DEN", d: "EWR", carriers: 4 },
+				{ o: "EWR", d: "IAD", carriers: 2 },
+				{ o: "EWR", d: "IAH", carriers: 2 },
+				{ o: "EWR", d: "LAS", carriers: 2 },
+				{ o: "EWR", d: "LAX", carriers: 4 },
+				{ o: "EWR", d: "SFO", carriers: 4 },
+				{ o: "FCO", d: "IAD", carriers: 2 },
+				{ o: "IAD", d: "IAH", carriers: 2 },
+				{ o: "IAD", d: "LAS", carriers: 2 },
+				{ o: "IAD", d: "MAN", carriers: 1 },
+				{ o: "IAD", d: "ORD", carriers: 2 },
+				{ o: "IAD", d: "PHL", carriers: 2 },
+				{ o: "IAD", d: "SFO", carriers: 4 },
+				{ o: "IAH", d: "MUC", carriers: 2 },
+				{ o: "DME", d: "MXP", carriers: 2 },
+				{ o: "JED", d: "LGW", carriers: 2 },
+			];
+
+			const dataYears = [
+				1990, 1995, 2000, 2001, 2002, 2003, 2004, 2005, 2010, 2015,
+				2020, 2025, 2026,
+			];
+			const passengerCsvUrl =
+				"data/bts_route_network_1990_2026.csv";
+			const airportDataUrl =
+				"https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat";
+			const airportLimitInput = document.getElementById("airportLimit");
+			const airportLimitParam = new URLSearchParams(
+				window.location.search,
+			).get("airports");
+			const requestedAirportLimit =
+				airportLimitParam === null ? NaN : Number(airportLimitParam);
+
+			/* ---------------------------------------------------------------------
+   RENDER
+--------------------------------------------------------------------- */
+			const svg = d3.select("#map");
+			const width = 960,
+				height = 500;
+			let byCode = Object.fromEntries(airports.map((a) => [a.code, a]));
+			let maxDegree = Math.max(...airports.map((a) => a.degree));
+			function nodeRadius(degree) {
+				return 2 + 8 * Math.sqrt(degree / maxDegree);
+			}
+
+			function curvedPath(x1, y1, x2, y2) {
+				const dx = x2 - x1,
+					dy = y2 - y1;
+				const curvature = 0.16;
+				const cx = (x1 + x2) / 2 - dy * curvature;
+				const cy = (y1 + y2) / 2 + dx * curvature;
+				return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+			}
+
+			d3.json(
+				"https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
+			)
+				.then((world) =>
+					Promise.all([
+						d3.csv(passengerCsvUrl),
+						d3.text(airportDataUrl).then((text) =>
+							d3.csvParseRows(text, (values) => ({
+								name: values[1],
+								city: values[2],
+								country: values[3],
+								iata: values[4],
+								lat: Number(values[6]),
+								lon: Number(values[7]),
+							})),
+						),
+					]).then(([csvRows, airportRows]) => ({
+						world,
+						csvRows,
+						airportRows,
+					})),
+				)
+				.then(({ world, csvRows, airportRows }) => {
+					document.getElementById("loading").style.display = "none";
+
+					const passengersByPair = new Map();
+					csvRows.forEach((row) => {
+						const year = Number(row.YEAR);
+						const origin = String(row.ORIGIN).trim().toUpperCase();
+						const destination = String(row.DEST)
+							.trim()
+							.toUpperCase();
+						const key = [origin, destination].sort().join("|");
+						if (
+							!dataYears.includes(year) ||
+							!origin ||
+							!destination
+						)
+							return;
+						if (!passengersByPair.has(key))
+							passengersByPair.set(key, {});
+						const pair = passengersByPair.get(key);
+						pair[year] =
+							(pair[year] || 0) + Number(row.PASSENGERS || 0);
+					});
+
+					const airportCodes = new Set();
+					csvRows.forEach((row) => {
+						airportCodes.add(
+							String(row.ORIGIN).trim().toUpperCase(),
+						);
+						airportCodes.add(String(row.DEST).trim().toUpperCase());
+					});
+					const airportByCode = new Map(
+						airportRows
+							.filter(
+								(row) =>
+									row.country === "United States" &&
+									row.iata &&
+									row.iata !== "\\N" &&
+									Number.isFinite(row.lat) &&
+									Number.isFinite(row.lon),
+							)
+							.map((row) => [row.iata, row]),
+					);
+					airports = [...airportCodes]
+						.filter((code) => airportByCode.has(code))
+						.map((code) => {
+							const airport = airportByCode.get(code);
+							return {
+								code,
+								city: airport.city,
+								country: airport.country,
+								lat: airport.lat,
+								lon: airport.lon,
+								degree: 0,
+							};
+						});
+					routes = [...passengersByPair.entries()]
+						.map(([key, pair]) => {
+							const [o, d] = key.split("|");
+							return {
+								o,
+								d,
+								byYear: Object.fromEntries(
+									dataYears.map((year) => [
+										year,
+										pair[year] || 0,
+									]),
+								),
+							};
+						})
+						.filter(
+							(route) =>
+								route.o !== route.d &&
+								airportByCode.has(route.o) &&
+								airportByCode.has(route.d),
+						);
+					byCode = Object.fromEntries(
+						airports.map((airport) => [airport.code, airport]),
+					);
+					routes.forEach((route) => {
+						if (byCode[route.o]) byCode[route.o].degree++;
+						if (byCode[route.d]) byCode[route.d].degree++;
+					});
+					maxDegree = Math.max(
+						...airports.map((airport) => airport.degree),
+						1,
+					);
+					const airportLimit = Number.isFinite(requestedAirportLimit)
+						? Math.max(
+								1,
+								Math.min(
+									requestedAirportLimit,
+									airports.length,
+								),
+							)
+						: Math.min(100, airports.length);
+					const displayedAirports = airports
+						.slice()
+						.sort((a, b) => b.degree - a.degree)
+						.slice(0, airportLimit);
+					airportLimitInput.max = airports.length;
+					airportLimitInput.value = airportLimit;
+					const thresholdSlider =
+						document.getElementById("threshold");
+					thresholdSlider.value = 0;
+
+					const countries = topojson.feature(
+						world,
+						world.objects.countries,
+					);
+					const usFeature = {
+						type: "FeatureCollection",
+						features: countries.features.filter(
+							(feature) => String(feature.id) === "840",
+						),
+					};
+					const usCodes = new Set(
+						displayedAirports.map((airport) => airport.code),
+					);
+					const mapRoutes = routes.filter(
+						(route) => usCodes.has(route.o) && usCodes.has(route.d),
+					);
+					const globalMaxPassengers = Math.max(
+						1,
+						...mapRoutes.flatMap((route) =>
+							dataYears.map((year) => route.byYear[year]),
+						),
+					);
+					thresholdSlider.max = globalMaxPassengers;
+					thresholdSlider.step = Math.max(
+						1000,
+						Math.ceil(globalMaxPassengers / 1000 / 100) * 1000,
+					);
+					const projection = d3
+						.geoAlbersUsa()
+						.fitSize([width, height], usFeature);
+					const path = d3.geoPath(projection);
+
+					const zoomLayer = svg.append("g").attr("class", "zoomable");
+
+					zoomLayer
+						.append("g")
+						.selectAll("path")
+						.data(usFeature.features)
+						.join("path")
+						.attr("class", "land")
+						.attr("d", path);
+					zoomLayer
+						.append("path")
+						.datum(d3.geoGraticule10())
+						.attr("class", "graticule")
+						.attr("d", path);
+
+					const routeLayer = zoomLayer.append("g");
+					const nodeLayer = zoomLayer.append("g");
+
+					const routeEls = mapRoutes.map((r) => {
+						const o = byCode[r.o],
+							d = byCode[r.d];
+						const po = projection([o.lon, o.lat]),
+							pd = projection([d.lon, d.lat]);
+						const p = routeLayer
+							.append("path")
+							.attr("class", "route")
+							.attr("d", curvedPath(po[0], po[1], pd[0], pd[1]));
+						p.append("title").text(`${r.o} \u2192 ${r.d}`);
+						return { data: r, el: p };
+					});
+
+					const nodeEls = displayedAirports.map((a) => {
+						const [x, y] = projection([a.lon, a.lat]);
+						const r = nodeRadius(a.degree);
+						const ghost = nodeLayer
+							.append("circle")
+							.attr("class", "node-ghost")
+							.attr("cx", x)
+							.attr("cy", y)
+							.attr("r", r + 3);
+						const ring = nodeLayer
+							.append("circle")
+							.attr("class", "node-ring")
+							.attr("cx", x)
+							.attr("cy", y)
+							.attr("r", r + 4)
+							.style("opacity", 0);
+						const core = nodeLayer
+							.append("circle")
+							.attr("class", "node-core")
+							.attr("cx", x)
+							.attr("cy", y)
+							.attr("r", r)
+							.attr("fill", "var(--mustard)");
+						const label = nodeLayer
+							.append("text")
+							.attr("class", "node-label")
+							.attr("x", x + r + 3)
+							.attr("y", y + 3)
+							.text(a.code);
+						core.append("title").text(
+							`${a.city}, ${a.country} (${a.code}) — ${a.degree} connected BTS airport pairs`,
+						);
+						return { data: a, ghost, ring, core, label };
+					});
+
+					// zoom
+					const zoom = d3
+						.zoom()
+						.scaleExtent([1, 8])
+						.on("zoom", (event) => {
+							zoomLayer.attr("transform", event.transform);
+						});
+					svg.call(zoom);
+					document.getElementById("zoomIn").onclick = () =>
+						svg.transition().duration(300).call(zoom.scaleBy, 1.5);
+					document.getElementById("zoomOut").onclick = () =>
+						svg
+							.transition()
+							.duration(300)
+							.call(zoom.scaleBy, 1 / 1.5);
+					document.getElementById("zoomReset").onclick = () =>
+						svg
+							.transition()
+							.duration(400)
+							.call(zoom.transform, d3.zoomIdentity);
+
+					const yearSlider = document.getElementById("yearSlider");
+					const statThreshold =
+						document.getElementById("statThreshold");
+					const statYear = document.getElementById("statYear");
+					const statRoutes = document.getElementById("statRoutes");
+					const statAirports = document.getElementById("statOpen");
+					const statConnected =
+						document.getElementById("statConnected");
+
+					function update() {
+						const year = dataYears[Number(yearSlider.value)];
+						const yearMax = Math.max(
+							1,
+							...mapRoutes.map((route) => route.byYear[year]),
+						);
+						const threshold = Number(thresholdSlider.value);
+						const visualFloor = Math.max(1, threshold);
+						statThreshold.textContent = threshold.toLocaleString();
+						statYear.textContent = year;
+
+						const connected = new Set();
+						let shown = 0;
+
+						const visibleRoutes = [];
+						routeEls.forEach(({ data, el }) => {
+							const passengers = data.byYear[year];
+							const visible =
+								passengers > 0 && passengers >= threshold;
+							if (visible) {
+								shown++;
+								connected.add(data.o);
+								connected.add(data.d);
+								visibleRoutes.push({ data, el, passengers });
+								el.select("title").text(
+									`${data.o} \u2192 ${data.d}: ${passengers.toLocaleString()} passengers in ${year} (BTS)`,
+								);
+							} else {
+								el.style("opacity", 0);
+							}
+						});
+						visibleRoutes
+							.sort((a, b) => a.passengers - b.passengers)
+							.forEach(({ el, passengers }) => {
+								const intensity =
+									yearMax === visualFloor
+										? 1
+										: Math.sqrt(
+												(passengers - visualFloor) /
+													(yearMax - visualFloor),
+											);
+								const w = 0.8 + 11.2 * intensity;
+								el.attr("stroke-width", w.toFixed(2))
+									.attr(
+										"stroke",
+										d3.interpolateRgb(
+											"#2c7bb6",
+											"#d7191c",
+										)(intensity),
+									)
+									.style("opacity", 0.18 + 0.82 * intensity)
+									.raise();
+							});
+
+						nodeEls.forEach(
+							({ data, ghost, ring, core, label }) => {
+								const isConnected = connected.has(data.code);
+								ghost.style("opacity", 0);
+								core.style("opacity", isConnected ? 1 : 0).attr(
+									"fill",
+									isConnected
+										? "var(--coral)"
+										: "var(--mustard)",
+								);
+								ring.style("opacity", isConnected ? 0.7 : 0);
+								label
+									.style("opacity", isConnected ? 1 : 0)
+									.classed("active", isConnected);
+							},
+						);
+
+						statRoutes.textContent = `${shown} / ${mapRoutes.length}`;
+						statAirports.textContent = `${connected.size} / ${usCodes.size}`;
+						statConnected.textContent = `${connected.size} / ${usCodes.size}`;
+					}
+
+					let updateFrame = null;
+					function scheduleUpdate() {
+						if (updateFrame !== null) return;
+						updateFrame = requestAnimationFrame(() => {
+							updateFrame = null;
+							update();
+						});
+					}
+					thresholdSlider.addEventListener("input", scheduleUpdate);
+					yearSlider.addEventListener("input", scheduleUpdate);
+					airportLimitInput.addEventListener("change", () => {
+						const nextLimit = Math.max(
+							1,
+							Math.min(
+								airports.length,
+								Number(airportLimitInput.value) || 100,
+							),
+						);
+						const nextUrl = new URL(window.location.href);
+						nextUrl.searchParams.set("airports", nextLimit);
+						window.location.href = nextUrl.toString();
+					});
+					update();
+				})
+				.catch((err) => {
+					document.getElementById("loading").textContent =
+						"Could not load world map (needs an internet connection).";
+					console.error(err);
+				});
+		</script>
+	</body>
+</html>
