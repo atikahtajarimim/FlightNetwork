@@ -1,7 +1,7 @@
 import pandas as pd
 import networkx as nx
 
-# STEP 1: Load and filter data (same as before)
+# STEP 1: Load and filter data 
 df = pd.read_csv("data/bts_route_network_1990_2026.csv")
 
 year = 2026
